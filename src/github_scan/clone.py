@@ -83,7 +83,7 @@ def clone_repository(
         _git(*args, url, str(destination))
         return destination, True
     if ref:
-        _git("-C", str(destination), "checkout", "--quiet", ref)
+        _git("-C", str(destination), "checkout", "--quiet", "--force", ref)
     else:
         _git("-C", str(destination), "remote", "set-head", "origin", "--auto")
         _git("-C", str(destination), "checkout", "--quiet", "origin/HEAD")
@@ -126,13 +126,23 @@ def skipped_assets(root: Path) -> list[str]:
     ]
 
 
-def read_repository(root: Path, limit: int) -> dict:
-    """Serialize every text file, or fail when the combined content exceeds limit."""
+def read_repository(root: Path, limit: int, file_limit: int) -> dict:
+    """Serialize text files up to file_limit bytes, or fail when their total exceeds limit.
+
+    Larger text files (generated data, captures) are not scanned and are deleted from the
+    working tree, so every released text file has been scanned.
+    """
     files = []
+    excluded = []
     total = 0
     for relative, text in iter_text_files(root):
-        total += len(text.encode("utf-8"))
+        size = len(text.encode("utf-8"))
+        if size > file_limit:
+            (root / relative).unlink()
+            excluded.append(relative)
+            continue
+        total += size
         if total > limit:
             raise ScanError("Content exceeds the scan limit; content withheld.")
         files.append({"path": relative, "content": text})
-    return {"files": files, "skipped": skipped_assets(root)}
+    return {"files": files, "skipped": skipped_assets(root), "excluded": excluded}

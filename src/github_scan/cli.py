@@ -12,7 +12,7 @@ from github_scan.classifier import scan_content, scan_files
 from github_scan.clone import clone_repository, read_repository
 from github_scan.errors import InjectionDetected, ScanError
 from github_scan.github import fetch_content, parse_repo_target, parse_target
-from github_scan.limits import MAX_BYTES, REPO_MAX_BYTES
+from github_scan.limits import MAX_BYTES, REPO_FILE_MAX_BYTES, REPO_MAX_BYTES
 
 KEY_PATH = Path.home() / ".config/github-scan/openrouter-api-key"
 
@@ -78,14 +78,18 @@ def read_content(args: argparse.Namespace) -> dict:
 def clone_and_read(url: str, ref: str | None) -> dict:
     destination, created = clone_repository(url, ref)
     try:
-        payload = read_repository(destination, REPO_MAX_BYTES)
+        payload = read_repository(destination, REPO_MAX_BYTES, REPO_FILE_MAX_BYTES)
     except ScanError:
         if created:
             shutil.rmtree(destination, ignore_errors=True)
         raise
     return {
         "payload": payload,
-        "output": {"path": str(destination), "skipped": payload["skipped"]},
+        "output": {
+            "path": str(destination),
+            "skipped": payload["skipped"],
+            "excluded": payload["excluded"],
+        },
         "cleanup": destination if created else None,
     }
 

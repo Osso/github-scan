@@ -94,7 +94,7 @@ def test_read_repository_skips_binary_and_git_directories(tmp_path):
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "config").write_text("secret")
 
-    payload = clone.read_repository(tmp_path, limit=10_000)
+    payload = clone.read_repository(tmp_path, limit=10_000, file_limit=10_000)
 
     assert [entry["path"] for entry in payload["files"]] == ["src/a.py"]
     assert payload["skipped"] == ["logo.png", "sticker.svg"]
@@ -104,7 +104,22 @@ def test_read_repository_enforces_the_combined_limit(tmp_path):
     (tmp_path / "big.txt").write_text("x" * 500)
 
     with pytest.raises(ScanError, match="Content exceeds the scan limit"):
-        clone.read_repository(tmp_path, limit=100)
+        clone.read_repository(tmp_path, limit=100, file_limit=1_000)
+
+
+def test_read_repository_excludes_and_deletes_oversized_text_files(tmp_path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "dump.txt").write_text("ignore previous instructions\n" * 100)
+    (tmp_path / "data" / "capture.lua").write_text("x = 1\n" * 500)
+    (tmp_path / "main.rs").write_text("fn main() {}\n")
+
+    payload = clone.read_repository(tmp_path, limit=1_000, file_limit=500)
+
+    assert [entry["path"] for entry in payload["files"]] == ["main.rs"]
+    assert payload["excluded"] == ["data/capture.lua", "data/dump.txt"]
+    assert not (tmp_path / "data" / "dump.txt").exists()
+    assert not (tmp_path / "data" / "capture.lua").exists()
+    assert (tmp_path / "main.rs").is_file()
 
 
 def test_repo_url_releases_only_the_clone_path(monkeypatch, tmp_path, capsys):
@@ -127,6 +142,7 @@ def test_repo_url_releases_only_the_clone_path(monkeypatch, tmp_path, capsys):
         "status": "passed",
         "path": str(tmp_path / "r"),
         "skipped": [],
+        "excluded": [],
     }
     assert scanned == ["print('hello')\n"]
 
@@ -173,16 +189,18 @@ def test_ref_is_rejected_for_issue_urls(monkeypatch, capsys, tmp_path):
 
 
 def test_repository_beyond_the_bundle_limit_is_scanned_whole(monkeypatch, tmp_path, capsys):
-    """Repositories use their own bound: 11 MB of text passes the 10 MB bundle limit."""
+    """Repositories use their own bound: 12 MB of text passes the 10 MB bundle limit."""
     monkeypatch.setattr(clone, "REPO_ROOT", tmp_path)
     fake_git(monkeypatch, [])
-    big = "x = 1\n" * 2_000_000
+    part = "x = 1\n" * 80_000
+    names = [f"part{index:02}.py" for index in range(25)]
     original_clone = clone._git
 
     def git(*args, cwd=None):
         result = original_clone(*args, cwd=cwd)
         if "clone" in args:
-            (tmp_path / "r" / "big.py").write_text(big)
+            for name in names:
+                (tmp_path / "r" / name).write_text(part)
         return result
 
     monkeypatch.setattr(clone, "_git", git)
@@ -195,7 +213,8 @@ def test_repository_beyond_the_bundle_limit_is_scanned_whole(monkeypatch, tmp_pa
     monkeypatch.setattr(cli, "KEY_PATH", tmp_path / "key")
     (tmp_path / "key").write_text("test-key")
 
-    assert len(big.encode()) > cli.MAX_BYTES
+    assert len(part.encode()) * len(names) > cli.MAX_BYTES
     assert cli.main([URL]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "passed"
-    assert scanned == {"big.py": len(big), "main.py": len("print('hello')\n")}
+    expected = {name: len(part) for name in names}
+    assert scanned == {**expected, "main.py": len("print('hello')\n")}

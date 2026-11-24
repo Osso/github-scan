@@ -7,6 +7,7 @@
 - [x] Fetch issue content and all comments; fetch PR reviews, inline comments and full diff unless discussion-only mode is requested.
 - [x] Repository mode clones the repository into `~/Repos/<name>` (reusing a clone with the same origin), honours an optional `--ref`, and scans every UTF-8 text file in the working tree. Binary files, invalid UTF-8 and `.git` are skipped. On success it releases the clone path only; a blocked or failed scan deletes a clone created by that run.
 - [x] Accept complete content beyond the previous 200,000-byte limit, including generated diffs and long lines, up to a shared 10,000,000-byte UTF-8 bound for each response and the serialized result.
+- [x] Repository mode scans only text files up to 524,288 UTF-8 bytes each. Larger text files are not scanned, are deleted from the working tree before release and are listed under `excluded`, so every released text file was scanned; a reused clone restores them on the next checkout.
 - [x] Repository mode has its own 50,000,000-byte bound on combined UTF-8 text, and classifies the chunks of all files concurrently under one shared request bound; a block still names the first injected file in path order.
 - [x] Scan every character in bounded overlapping Unicode-safe chunks without truncation; release the entire result only after every chunk passes.
 - [x] Complete pagination and block fetch errors or content beyond the shared limit instead of returning partial content.
@@ -36,7 +37,7 @@
 - `tests/test_github.py`: fetch surfaces, pagination, request and size failures.
 - `tests/test_classifier.py`: classifier request shape, verdict parsing, retries and fail-closed behavior.
 - `tests/test_cli.py`: snapshot release and withholding at the CLI boundary.
-- `tests/test_clone.py`: clone creation and reuse, binary skipping, size limits and cleanup on block.
+- `tests/test_clone.py`: clone creation and reuse, binary skipping, oversized-file exclusion, size limits and cleanup on block.
 
 ## Verification history
 
